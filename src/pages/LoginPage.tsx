@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Navigate, useLocation, useNavigate } from 'react-router-dom';
+import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { Loader2, Shield } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -19,8 +19,8 @@ export function LoginPage() {
     return <LoadingScreen />;
   }
 
-  if (user?.role === 'admin') {
-    const target = (location.state as { from?: string } | null)?.from || '/users';
+  if (user && ['admin', 'plate_manager', 'technician'].includes(user.role)) {
+    const target = (location.state as { from?: string } | null)?.from || (user.role === 'admin' ? '/users' : '/plate-requests');
     return <Navigate to={target} replace />;
   }
 
@@ -30,8 +30,8 @@ export function LoginPage() {
     setError(null);
 
     try {
-      await login(email, password);
-      navigate('/users', { replace: true });
+      const loggedUser = await login(email, password);
+      navigate(loggedUser.role === 'admin' ? '/users' : '/plate-requests', { replace: true });
     } catch (err: any) {
       setError(err?.response?.data?.error || err?.message || 'No pudimos iniciar sesión');
     } finally {
@@ -54,7 +54,7 @@ export function LoginPage() {
                 />
               </div>
               <div className="space-y-3">
-                <p className="text-sm font-semibold uppercase tracking-[0.2em] text-white/75">Backoffice</p>
+                <p className="text-sm font-semibold uppercase tracking-[0.2em] text-white/75">Panel de administración</p>
                 <h1 className="max-w-md text-4xl font-extrabold tracking-tight">Acceso al panel</h1>
                 <p className="max-w-lg text-sm leading-6 text-white/85">
                   Inresa con tu cuenta autorizada para revisar los usuarios y descargar sus QR.
@@ -108,6 +108,7 @@ export function LoginPage() {
                 {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Shield className="h-4 w-4" />}
                 {submitting ? 'Ingresando' : 'Entrar al panel'}
               </Button>
+              <p className="text-center text-sm text-zinc-500">¿Todavía no tenés una cuenta? <Link className="font-semibold text-[#8a3237] hover:underline" to="/register">Registrate</Link></p>
             </form>
           </div>
         </section>

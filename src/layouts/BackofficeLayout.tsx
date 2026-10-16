@@ -1,11 +1,14 @@
-import { LogOut, UserCircle2 } from 'lucide-react';
+import { ClipboardList, LogOut, ShieldCheck, UserCircle2, Users } from 'lucide-react';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { useAuth } from '../context/AuthContext';
-import { Outlet } from 'react-router-dom';
+import { NavLink, Outlet } from 'react-router-dom';
 
 export function BackofficeLayout() {
   const { user, logout } = useAuth();
+  const isPlateManager = user?.role === 'plate_manager';
+  const isTechnician = user?.role === 'technician';
+  const restrictedToPlates = isPlateManager || isTechnician;
 
   return (
     <div className="min-h-dvh bg-[radial-gradient(circle_at_top_left,_rgba(211,47,47,0.24),_transparent_30%),radial-gradient(circle_at_top_right,_rgba(211,47,47,0.12),_transparent_26%),linear-gradient(180deg,#fff4f4_0%,#f8fafc_100%)] px-4 py-4 text-zinc-900">
@@ -22,10 +25,10 @@ export function BackofficeLayout() {
                 />
               </div>
               <div className="space-y-2">
-                <Badge className="w-fit bg-white/10 text-white hover:bg-white/10">Backoffice</Badge>
-                <h1 className="text-3xl font-extrabold tracking-tight">Panel de usuarios</h1>
+                <Badge className="w-fit bg-white/10 text-white hover:bg-white/10">{isTechnician ? 'Instalaciones' : restrictedToPlates ? 'Gestión de placas' : 'Administración'}</Badge>
+                <h1 className="text-3xl font-extrabold tracking-tight">{restrictedToPlates ? (isTechnician ? 'Panel de instalaciones' : 'Gestión de placas') : 'Panel de administración'}</h1>
                 <p className="max-w-2xl text-sm leading-6 text-white/85">
-                  Gestiona los usuarios y descarga sus QR en PNG.
+                  {isTechnician ? 'Consultá las instalaciones pendientes y las direcciones de cada usuario.' : isPlateManager ? 'Revisá solicitudes y descargá el QR de cada usuario.' : 'Gestioná usuarios, QR y solicitudes de placas desde un solo lugar.'}
                 </p>
               </div>
             </div>
@@ -41,6 +44,11 @@ export function BackofficeLayout() {
               </Button>
             </div>
           </div>
+          <nav className="flex flex-wrap gap-2 border-t border-[#f2d0d0] bg-white px-5 py-3" aria-label="Secciones del backoffice">
+            {!restrictedToPlates ? <NavLink to="/users" className={({ isActive }) => `inline-flex items-center gap-2 rounded-2xl px-4 py-2 text-sm font-bold transition-colors ${isActive ? 'bg-[#7d1522] text-white' : 'text-zinc-700 hover:bg-[#fff1f1]'}`}><Users className="h-4 w-4" />Usuarios</NavLink> : null}
+            <NavLink to="/plate-requests" className={({ isActive }) => `inline-flex items-center gap-2 rounded-2xl px-4 py-2 text-sm font-bold transition-colors ${isActive ? 'bg-[#7d1522] text-white' : 'text-zinc-700 hover:bg-[#fff1f1]'}`}><ClipboardList className="h-4 w-4" />{isTechnician ? 'Instalaciones' : 'Solicitudes de placas'}</NavLink>
+            {!restrictedToPlates ? <NavLink to="/administrators" className={({ isActive }) => `inline-flex items-center gap-2 rounded-2xl px-4 py-2 text-sm font-bold transition-colors ${isActive ? 'bg-[#7d1522] text-white' : 'text-zinc-700 hover:bg-[#fff1f1]'}`}><ShieldCheck className="h-4 w-4" />Usuarios y permisos</NavLink> : null}
+          </nav>
         </header>
 
         <Outlet />

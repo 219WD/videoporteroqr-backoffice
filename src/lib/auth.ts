@@ -2,7 +2,7 @@ export type AuthUser = {
   id: string;
   name: string;
   email: string;
-  role: 'admin' | 'host';
+  role: 'admin' | 'plate_manager' | 'technician' | 'host';
   qrCode: string | null;
   emailVerified: boolean;
 };

@@ -11,6 +11,18 @@ type UserRow = {
   role: 'host';
   qrCode: string | null;
   createdAt: string | null;
+  qrStatus: 'active' | 'paused' | 'blocked';
+  plateStatus: 'active' | 'damaged' | 'replacement_requested';
+  plateReplacementRequestedAt: string | null;
+};
+
+type Report = {
+  _id: string;
+  asset: 'qr' | 'plate';
+  type: string;
+  status: string;
+  createdAt: string;
+  user?: { name?: string; email?: string };
 };
 
 type Pagination = {
@@ -36,6 +48,40 @@ function formatDate(value: string | null) {
     month: '2-digit',
     year: 'numeric',
   });
+}
+
+function isPlateRequest(report: Report) {
+  return report.asset === 'plate' && ['replacement', 'new_plate'].includes(report.type);
+}
+
+function reportTypeLabel(report: Report) {
+  if (isPlateRequest(report)) return 'Solicitud de placa nueva';
+  if (report.type === 'damaged') return report.asset === 'qr' ? 'QR dañado' : 'Placa dañada';
+  if (report.type === 'unreadable') return 'QR ilegible';
+  if (report.type === 'lost') return 'QR perdido';
+  return 'Reporte';
+}
+
+function normalizePlateReportStatus(status: string) {
+  if (status === 'open') return 'pending';
+  if (status === 'in_review') return 'in_production';
+  if (status === 'resolved') return 'installed';
+  return status;
+}
+
+function reportStatusLabel(status: string) {
+  const labels: Record<string, string> = {
+    open: 'Pendiente',
+    pending: 'Solicitud recibida',
+    in_review: 'En revisión',
+    in_production: 'En fabricación',
+    ready_for_installation: 'Lista para instalar',
+    resolved: 'Resuelto',
+    installed: 'Instalada',
+    rejected: 'Rechazado',
+  };
+
+  return labels[status] || 'Pendiente';
 }
 
 function buildQrPngUrl(userId: string) {
@@ -247,6 +293,8 @@ export function UsersPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [previewUser, setPreviewUser] = useState<UserRow | null>(null);
+  const [reports, setReports] = useState<Report[]>([]);
+  const [updatingUser, setUpdatingUser] = useState<string | null>(null);
   const requestControllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
@@ -322,6 +370,43 @@ export function UsersPage() {
     void loadUsers(page, pageSize, debouncedSearch);
   }, [loadUsers, page, pageSize, debouncedSearch]);
 
+  const loadReports = useCallback(async () => {
+    try {
+      const response = await api.get<{ reports: Report[] }>('/backoffice/qr-reports');
+      setReports(response.data.reports || []);
+    } catch {
+      // La tabla de usuarios sigue siendo utilizable si el endpoint de reportes no está disponible.
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadReports();
+  }, [loadReports]);
+
+  const updateAssetStatus = useCallback(async (user: UserRow, asset: 'qr' | 'plate', status: string) => {
+    setUpdatingUser(user.id);
+    try {
+      const response = await api.patch<{ user: UserRow }>(`/backoffice/users/${encodeURIComponent(user.id)}/${asset}-status`, { status });
+      setUsers((current) => current.map((item) => (item.id === user.id ? { ...item, ...response.data.user } : item)));
+    } catch (err: any) {
+      setError(err?.response?.data?.error || 'No pudimos actualizar el estado');
+    } finally {
+      setUpdatingUser(null);
+    }
+  }, []);
+
+  const updateReport = useCallback(async (report: Report, status: string) => {
+    if (isPlateRequest(report) && status === 'installed' && !window.confirm('¿Confirmás que la placa ya fue instalada?')) {
+      return;
+    }
+    try {
+      await api.patch(`/backoffice/qr-reports/${encodeURIComponent(report._id)}`, { status });
+      await loadReports();
+    } catch (err: any) {
+      setError(err?.response?.data?.error || 'No pudimos actualizar el reporte');
+    }
+  }, [loadReports]);
+
   const currentWithQr = useMemo(() => users.filter((user) => Boolean(user.qrCode)).length, [users]);
   const canGoPrev = pagination.page > 1;
   const canGoNext = pagination.page < pagination.totalPages;
@@ -334,7 +419,7 @@ export function UsersPage() {
         <div className="flex flex-col gap-3 border-b border-[#f2d0d0] pb-4 md:flex-row md:items-end md:justify-between">
           <div>
             <h2 className="text-xl font-extrabold tracking-tight text-zinc-900">Usuarios</h2>
-            <p className="mt-1 text-sm leading-6 text-zinc-500">Busca por nombre y descarga o previsualiza el QR.</p>
+            <p className="mt-1 text-sm leading-6 text-zinc-500">Buscá por nombre y descargá o previsualizá el QR.</p>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
@@ -431,19 +516,21 @@ export function UsersPage() {
         ) : null}
 
         <div className="mt-4 overflow-x-auto">
-          <table className="min-w-[980px] w-full border-collapse">
+            <table className="min-w-[1180px] w-full border-collapse">
             <thead>
               <tr className="border-b border-[#f2d0d0] text-left text-xs uppercase tracking-[0.18em] text-zinc-500">
                 <th className="px-4 py-3 font-semibold">Usuario</th>
                 <th className="px-4 py-3 font-semibold">Correo</th>
                 <th className="px-4 py-3 font-semibold">Fecha</th>
+                <th className="px-4 py-3 font-semibold">Estado QR</th>
+                <th className="px-4 py-3 font-semibold">Estado placa</th>
                 <th className="px-4 py-3 font-semibold">Acciones</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={4} className="px-4 py-10 text-center text-sm text-zinc-500">
+                  <td colSpan={6} className="px-4 py-10 text-center text-sm text-zinc-500">
                     <div className="inline-flex items-center gap-3 rounded-2xl border border-[#f2d0d0] bg-[#fff7f7] px-5 py-4">
                       <Loader2 className="h-4 w-4 animate-spin text-[#d32f2f]" />
                       Cargando usuarios...
@@ -452,7 +539,7 @@ export function UsersPage() {
                 </tr>
               ) : users.length === 0 ? (
                 <tr>
-                  <td colSpan={4} className="px-4 py-10 text-center text-sm text-zinc-500">
+                  <td colSpan={6} className="px-4 py-10 text-center text-sm text-zinc-500">
                     No encontramos usuarios cargados.
                   </td>
                 </tr>
@@ -470,6 +557,16 @@ export function UsersPage() {
                       </td>
                       <td className="px-4 py-4 text-sm text-zinc-700">{user.email || 'Sin correo'}</td>
                       <td className="px-4 py-4 text-sm text-zinc-600">{formatDate(user.createdAt)}</td>
+                      <td className="px-4 py-4">
+                        <select value={user.qrStatus || 'active'} disabled={updatingUser === user.id} onChange={(event) => void updateAssetStatus(user, 'qr', event.target.value)} className="rounded-xl border border-zinc-300 px-2 py-2 text-sm">
+                          <option value="active">Activo</option><option value="paused">Pausado</option><option value="blocked">Bloqueado</option>
+                        </select>
+                      </td>
+                      <td className="px-4 py-4">
+                        <select value={user.plateStatus || 'active'} disabled={updatingUser === user.id} onChange={(event) => void updateAssetStatus(user, 'plate', event.target.value)} className="rounded-xl border border-zinc-300 px-2 py-2 text-sm">
+                          <option value="active">Activa</option><option value="damaged">Dañada</option><option value="replacement_requested">Solicitud en curso</option>
+                        </select>
+                      </td>
                       <td className="px-4 py-4">
                         <div className="flex flex-wrap gap-2">
                           <Button
@@ -526,6 +623,10 @@ export function UsersPage() {
             </Button>
           </div>
         </div>
+      </section>
+      <section className="mt-4 rounded-[30px] border border-[#f2d0d0] bg-white p-4 shadow-[0_18px_50px_rgba(211,47,47,0.08)]">
+        <div className="flex items-center justify-between border-b border-[#f2d0d0] pb-4"><div><h2 className="text-xl font-extrabold text-zinc-900">Incidencias de QR y placas</h2><p className="mt-1 text-sm text-zinc-500">Revisá daños y solicitudes de placas nuevas.</p></div><Button variant="secondary" onClick={() => void loadReports()}>Actualizar incidencias</Button></div>
+        {reports.length === 0 ? <p className="py-6 text-sm text-zinc-500">No hay incidencias pendientes.</p> : <div className="divide-y divide-zinc-100">{reports.map((report) => { const plateRequest = isPlateRequest(report); const currentStatus = plateRequest ? normalizePlateReportStatus(report.status) : report.status; return <div key={report._id} className="flex flex-wrap items-center justify-between gap-3 py-4 text-sm"><div><div className="font-semibold text-zinc-900">{report.user?.name || 'Usuario'} · {report.asset === 'qr' ? 'QR' : 'Placa'}</div><div className="text-zinc-500">{reportTypeLabel(report)} · {formatDate(report.createdAt)}</div></div><select value={currentStatus} onChange={(event) => void updateReport(report, event.target.value)} className="rounded-xl border border-zinc-300 px-3 py-2" aria-label={`Estado de ${reportTypeLabel(report)}`}>{plateRequest ? <><option value="pending">Solicitud recibida</option><option value="in_production">En fabricación</option><option value="ready_for_installation">Lista para instalar</option><option value="installed">Instalada</option><option value="rejected">Rechazada</option></> : <><option value="open">Pendiente</option><option value="in_review">En revisión</option><option value="resolved">Resuelto</option><option value="rejected">Rechazado</option></>}</select><span className="min-w-[150px] text-right text-xs font-semibold text-zinc-500">{reportStatusLabel(currentStatus)}</span></div>; })}</div>}
       </section>
     </>
   );

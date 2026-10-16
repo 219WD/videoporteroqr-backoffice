@@ -12,7 +12,7 @@ import {
 type AuthContextValue = {
   user: AuthUser | null;
   loading: boolean;
-  login: (email: string, password: string) => Promise<void>;
+  login: (email: string, password: string) => Promise<AuthUser>;
   logout: () => void;
 };
 
@@ -46,7 +46,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       try {
         const response = await api.get<AuthUser>('/auth/me');
 
-        if (response.data.role !== 'admin') {
+        if (!['admin', 'plate_manager', 'technician'].includes(response.data.role)) {
           clearStoredAuth();
           if (active) {
             setUser(null);
@@ -89,12 +89,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const login = async (email: string, password: string) => {
     const response = await api.post<AuthResponse>('/auth/login', { email, password });
 
-    if (response.data.user.role !== 'admin') {
+    if (!['admin', 'plate_manager', 'technician'].includes(response.data.user.role)) {
       throw new Error('Esta cuenta no tiene acceso al panel');
     }
 
     setStoredAuth(response.data.token, response.data.user);
     setUser(response.data.user);
+    return response.data.user;
   };
 
   const logout = () => {
